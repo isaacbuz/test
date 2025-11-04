@@ -184,7 +184,8 @@ def detect_bull_flag(df: pd.DataFrame, lookback=40, min_impulse_atr=1.2) -> Opti
     if not (volz.mean() < 0.0):
         return None
     score = 0.55 + 0.25*min(1, impulse_range/(1.5*atr14)) + 0.2*min(1, (0 - volz.mean())/2)
-    return DetectedPattern(name="BullFlag", score=float(min(1.0, score)), meta={"flag_len": 8})
+    flag_start_idx = len(df) - 8
+    return DetectedPattern(name="BullFlag", score=float(min(1.0, score)), meta={"flag_start_idx": flag_start_idx, "flag_len": 8})
 
 # ---------- Confluence
 
@@ -310,8 +311,8 @@ def compile_trade_plan(df: pd.DataFrame,
             if farther:
                 tp2 = min(farther, key=lambda x: abs(x - tp2))
     conf = confluence_score(df, patterns, sr_levels, vp, volz, macd_line, rsi_line)
-    rr = float((tp1 - entry) / max(1e-9, entry - stop))
-    dirn = "LONG"
+    rr = float((tp1 - entry) / max(1e-9, abs(entry - stop)))
+    dirn = "LONG" if breakout or (macd_line.iloc[-1] > 0 and rsi_line.iloc[-1] > 45) else "NEUTRAL"
     ivr = iv_rank_from_hist_impvol_or_proxy(df)
     opt = choose_options_structure(ivr, bullish=(dirn=="LONG"), entry=entry, tp1=tp1, sl=stop)
     plan = {
@@ -380,6 +381,9 @@ class AITA:
         data = yf.download(symbol, period=self.cfg.period, interval=self.cfg.interval, auto_adjust=True)
         if data.empty:
             raise RuntimeError(f"No data for {symbol}")
+        # Flatten MultiIndex columns if present (yfinance compatibility)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = [col[0] for col in data.columns]
         data = data.dropna().copy()
         data["ATR"] = atr(data,14)
         data["RSI"] = rsi(data,14)
