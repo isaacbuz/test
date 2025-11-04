@@ -1,9 +1,9 @@
 
 # AITA — Automated Intelligent Technical Analysis (MVP)
 
-A production-ready starter project that analyzes symbols, auto-detects patterns (Cup & Handle, Bull Flag),
-builds trade plans (ENTRY/SL/TP/targets, R:R, quality scores), proposes options structures (IV-aware), and
-exposes a FastAPI endpoint that also returns a **render overlay spec** for frontend charts.
+A production-ready starter project that analyzes symbols, auto-detects patterns (Cup & Handle, Bull Flag,
+Head & Shoulders, Inverse H&S, Double Top/Bottom), builds trade plans (ENTRY/SL/TP/targets, R:R, quality scores),
+proposes options structures (IV-aware), and exposes a FastAPI endpoint that also returns a **render overlay spec** for frontend charts.
 
 > Educational only. Not financial advice.
 
@@ -85,4 +85,7 @@ docker run -p 8000:8000 aita:latest
 ## Notes
 - The analyzer uses: rule-based pattern detection, pivot-anchored Fibonacci, AVWAP, VPVR shelves, confluence scoring,
   and an IV-aware options planner.
-- Extend `aita_system.py` to add more patterns (triangles, double bottoms), more indicators, and backtests.
+- **Patterns detected**: Cup & Handle, Bull Flag, Head & Shoulders (bearish), Inverse H&S (bullish), Double Top (bearish), Double Bottom (bullish)
+- Each pattern includes confidence scoring (0-100%), volume analysis, and symmetry validation
+- Trade plans automatically adapt based on pattern type (LONG for bullish, SHORT for bearish, NEUTRAL otherwise)
+- Extend `aita_system.py` to add more patterns (triangles, wedges), more indicators, and backtests.

@@ -187,6 +187,238 @@ def detect_bull_flag(df: pd.DataFrame, lookback=40, min_impulse_atr=1.2) -> Opti
     flag_start_idx = len(df) - 8
     return DetectedPattern(name="BullFlag", score=float(min(1.0, score)), meta={"flag_start_idx": flag_start_idx, "flag_len": 8})
 
+def detect_head_shoulders(df: pd.DataFrame, order=5, symmetry_tolerance=0.03) -> Optional[DetectedPattern]:
+    """Detect head and shoulders pattern (bearish reversal)"""
+    highs, lows = find_pivots(df, order)
+    if len(highs) < 3:
+        return None
+
+    # Look for H&S in recent swing highs
+    for i in range(len(highs) - 2):
+        left_shoulder_idx = highs[i]
+        head_idx = highs[i + 1]
+        right_shoulder_idx = highs[i + 2]
+
+        left_shoulder = float(df["High"].iloc[left_shoulder_idx])
+        head = float(df["High"].iloc[head_idx])
+        right_shoulder = float(df["High"].iloc[right_shoulder_idx])
+
+        # Check H&S conditions: head > both shoulders
+        if not (head > left_shoulder and head > right_shoulder):
+            continue
+
+        # Check shoulders are roughly equal (within tolerance)
+        shoulder_diff = abs(left_shoulder - right_shoulder) / left_shoulder
+        if shoulder_diff > symmetry_tolerance:
+            continue
+
+        # Find neckline (support between shoulders)
+        neckline_slice = df["Low"].iloc[left_shoulder_idx:right_shoulder_idx + 1]
+        neckline_price = float(neckline_slice.min())
+        neckline_idx = neckline_slice.idxmin()
+
+        # Calculate pattern height (for target projection)
+        height = head - neckline_price
+
+        # Calculate confidence score
+        symmetry_score = 1.0 - (shoulder_diff / symmetry_tolerance)
+        volume_conf = 1.0 if df["Volume"].iloc[head_idx] > df["Volume"].iloc[left_shoulder_idx:right_shoulder_idx + 1].mean() else 0.5
+
+        # Check if price has broken neckline
+        current_price = float(df["Close"].iloc[-1])
+        breakout = current_price < neckline_price * 0.99
+
+        score = 0.65 + 0.2 * symmetry_score + 0.1 * volume_conf + (0.05 if breakout else 0)
+
+        if score >= 0.70:
+            return DetectedPattern(
+                name="HeadAndShoulders",
+                score=float(min(1.0, score)),
+                meta={
+                    "left_shoulder_idx": int(left_shoulder_idx),
+                    "head_idx": int(head_idx),
+                    "right_shoulder_idx": int(right_shoulder_idx),
+                    "neckline_price": neckline_price,
+                    "neckline_idx": int(df.index.get_loc(neckline_idx)),
+                    "pattern_height": height,
+                    "left_shoulder": left_shoulder,
+                    "head": head,
+                    "right_shoulder": right_shoulder
+                }
+            )
+    return None
+
+def detect_inverse_head_shoulders(df: pd.DataFrame, order=5, symmetry_tolerance=0.03) -> Optional[DetectedPattern]:
+    """Detect inverse head and shoulders pattern (bullish reversal)"""
+    highs, lows = find_pivots(df, order)
+    if len(lows) < 3:
+        return None
+
+    # Look for inverse H&S in recent swing lows
+    for i in range(len(lows) - 2):
+        left_shoulder_idx = lows[i]
+        head_idx = lows[i + 1]
+        right_shoulder_idx = lows[i + 2]
+
+        left_shoulder = float(df["Low"].iloc[left_shoulder_idx])
+        head = float(df["Low"].iloc[head_idx])
+        right_shoulder = float(df["Low"].iloc[right_shoulder_idx])
+
+        # Check inverse H&S conditions: head < both shoulders (lower low)
+        if not (head < left_shoulder and head < right_shoulder):
+            continue
+
+        # Check shoulders are roughly equal
+        shoulder_diff = abs(left_shoulder - right_shoulder) / left_shoulder
+        if shoulder_diff > symmetry_tolerance:
+            continue
+
+        # Find neckline (resistance between shoulders)
+        neckline_slice = df["High"].iloc[left_shoulder_idx:right_shoulder_idx + 1]
+        neckline_price = float(neckline_slice.max())
+        neckline_idx = neckline_slice.idxmax()
+
+        # Calculate pattern height
+        height = neckline_price - head
+
+        # Calculate confidence
+        symmetry_score = 1.0 - (shoulder_diff / symmetry_tolerance)
+        volume_conf = 1.0 if df["Volume"].iloc[right_shoulder_idx] > df["Volume"].iloc[left_shoulder_idx:head_idx + 1].mean() else 0.5
+
+        # Check breakout
+        current_price = float(df["Close"].iloc[-1])
+        breakout = current_price > neckline_price * 1.01
+
+        score = 0.65 + 0.2 * symmetry_score + 0.1 * volume_conf + (0.05 if breakout else 0)
+
+        if score >= 0.70:
+            return DetectedPattern(
+                name="InverseHeadAndShoulders",
+                score=float(min(1.0, score)),
+                meta={
+                    "left_shoulder_idx": int(left_shoulder_idx),
+                    "head_idx": int(head_idx),
+                    "right_shoulder_idx": int(right_shoulder_idx),
+                    "neckline_price": neckline_price,
+                    "neckline_idx": int(df.index.get_loc(neckline_idx)),
+                    "pattern_height": height,
+                    "left_shoulder": left_shoulder,
+                    "head": head,
+                    "right_shoulder": right_shoulder
+                }
+            )
+    return None
+
+def detect_double_bottom(df: pd.DataFrame, order=5, price_tolerance=0.02) -> Optional[DetectedPattern]:
+    """Detect double bottom pattern (bullish reversal)"""
+    highs, lows = find_pivots(df, order)
+    if len(lows) < 2:
+        return None
+
+    # Look for two roughly equal lows
+    for i in range(len(lows) - 1):
+        first_low_idx = lows[i]
+        second_low_idx = lows[i + 1]
+
+        first_low = float(df["Low"].iloc[first_low_idx])
+        second_low = float(df["Low"].iloc[second_low_idx])
+
+        # Check if lows are roughly equal (within tolerance)
+        price_diff = abs(first_low - second_low) / first_low
+        if price_diff > price_tolerance:
+            continue
+
+        # Find peak between the two lows (resistance level)
+        peak_slice = df["High"].iloc[first_low_idx:second_low_idx + 1]
+        resistance = float(peak_slice.max())
+        peak_idx = peak_slice.idxmax()
+
+        # Ensure there's meaningful separation (peak should be higher than lows)
+        if resistance < first_low * 1.02:
+            continue
+
+        # Calculate confidence
+        price_similarity = 1.0 - (price_diff / price_tolerance)
+
+        # Check volume (second low should have lower volume = bullish)
+        vol_confirmation = 1.0 if df["Volume"].iloc[second_low_idx] < df["Volume"].iloc[first_low_idx] else 0.6
+
+        # Check breakout above resistance
+        current_price = float(df["Close"].iloc[-1])
+        breakout = current_price > resistance * 1.01
+
+        score = 0.65 + 0.2 * price_similarity + 0.1 * vol_confirmation + (0.05 if breakout else 0)
+
+        if score >= 0.70:
+            return DetectedPattern(
+                name="DoubleBottom",
+                score=float(min(1.0, score)),
+                meta={
+                    "first_low_idx": int(first_low_idx),
+                    "second_low_idx": int(second_low_idx),
+                    "peak_idx": int(df.index.get_loc(peak_idx)),
+                    "first_low": first_low,
+                    "second_low": second_low,
+                    "resistance": resistance,
+                    "pattern_height": resistance - min(first_low, second_low)
+                }
+            )
+    return None
+
+def detect_double_top(df: pd.DataFrame, order=5, price_tolerance=0.02) -> Optional[DetectedPattern]:
+    """Detect double top pattern (bearish reversal)"""
+    highs, lows = find_pivots(df, order)
+    if len(highs) < 2:
+        return None
+
+    # Look for two roughly equal highs
+    for i in range(len(highs) - 1):
+        first_high_idx = highs[i]
+        second_high_idx = highs[i + 1]
+
+        first_high = float(df["High"].iloc[first_high_idx])
+        second_high = float(df["High"].iloc[second_high_idx])
+
+        # Check if highs are roughly equal
+        price_diff = abs(first_high - second_high) / first_high
+        if price_diff > price_tolerance:
+            continue
+
+        # Find trough between the two highs (support level)
+        trough_slice = df["Low"].iloc[first_high_idx:second_high_idx + 1]
+        support = float(trough_slice.min())
+        trough_idx = trough_slice.idxmin()
+
+        # Ensure meaningful separation
+        if support > first_high * 0.98:
+            continue
+
+        # Calculate confidence
+        price_similarity = 1.0 - (price_diff / price_tolerance)
+        vol_confirmation = 1.0 if df["Volume"].iloc[second_high_idx] < df["Volume"].iloc[first_high_idx] else 0.6
+
+        # Check breakdown below support
+        current_price = float(df["Close"].iloc[-1])
+        breakdown = current_price < support * 0.99
+
+        score = 0.65 + 0.2 * price_similarity + 0.1 * vol_confirmation + (0.05 if breakdown else 0)
+
+        if score >= 0.70:
+            return DetectedPattern(
+                name="DoubleTop",
+                score=float(min(1.0, score)),
+                meta={
+                    "first_high_idx": int(first_high_idx),
+                    "second_high_idx": int(second_high_idx),
+                    "trough_idx": int(df.index.get_loc(trough_idx)),
+                    "first_high": first_high,
+                    "second_high": second_high,
+                    "support": support,
+                    "pattern_height": max(first_high, second_high) - support
+                }
+            )
+    return None
+
 # ---------- Confluence
 
 def hvn_lvn(vp: Dict[str, np.ndarray], order: int=2) -> Tuple[List[float], List[float]]:
@@ -277,31 +509,102 @@ def compile_trade_plan(df: pd.DataFrame,
                        rsi_line: pd.Series) -> Dict:
     price = float(df["Close"].iloc[-1])
     rng_atr = float(atr(df,14).iloc[-1])
+
+    # Determine trade direction based on pattern type
+    bullish_patterns = ["CupAndHandle", "BullFlag", "InverseHeadAndShoulders", "DoubleBottom"]
+    bearish_patterns = ["HeadAndShoulders", "DoubleTop"]
+
+    direction = "NEUTRAL"
+    if patterns:
+        top_pattern = patterns[0]  # Highest confidence pattern
+        if top_pattern.name in bullish_patterns:
+            direction = "LONG"
+        elif top_pattern.name in bearish_patterns:
+            direction = "SHORT"
+
+    # Calculate entry, stop, and targets based on pattern
     rim = None
-    for p in patterns:
-        if p.name == "CupAndHandle":
-            rim = p.meta["rim_level"]; break
-    resistance = rim or (sr_levels[0][0] if sr_levels else price)
-    breakout = price > (resistance + 0.25*rng_atr)
-    entry = price if breakout else resistance
-    swing_lows = find_pivots(df,5)[1]
+    resistance = price
+    support = price
     stop_candidates = []
-    if avwap is not None and not math.isnan(avwap.iloc[-1]):
-        stop_candidates.append(float(avwap.iloc[-1] - 0.1*rng_atr))
-    if swing_lows:
-        stop_candidates.append(float(df["Low"].iloc[swing_lows[-1]]))
+    entry = price
+    breakout = False
+
     for p in patterns:
         if p.name == "CupAndHandle":
+            rim = p.meta["rim_level"]
+            resistance = rim
+            breakout = price > (resistance + 0.25*rng_atr)
+            entry = price if breakout else resistance
             stop_candidates.append(float(df["Low"].iloc[p.meta["handle_start"]:p.meta["handle_end"]+1].min()))
-    if not stop_candidates:
-        stop_candidates = [price - 2*rng_atr]
-    stop = float(min(stop_candidates))
+        elif p.name == "InverseHeadAndShoulders":
+            resistance = p.meta["neckline_price"]
+            breakout = price > resistance * 1.01
+            entry = resistance * 1.01
+            stop_candidates.append(p.meta["right_shoulder"] * 0.98)
+        elif p.name == "DoubleBottom":
+            resistance = p.meta["resistance"]
+            breakout = price > resistance * 1.01
+            entry = resistance * 1.01
+            stop_candidates.append(min(p.meta["first_low"], p.meta["second_low"]) * 0.98)
+        elif p.name == "HeadAndShoulders":
+            support = p.meta["neckline_price"]
+            breakout = price < support * 0.99
+            entry = support * 0.99
+            stop_candidates.append(p.meta["right_shoulder"] * 1.02)
+        elif p.name == "DoubleTop":
+            support = p.meta["support"]
+            breakout = price < support * 0.99
+            entry = support * 0.99
+            stop_candidates.append(max(p.meta["first_high"], p.meta["second_high"]) * 1.02)
+
+    # Add general stop candidates
+    swing_lows = find_pivots(df,5)[1]
+    swing_highs = find_pivots(df,5)[0]
+
+    if avwap is not None and not math.isnan(avwap.iloc[-1]):
+        if direction == "LONG":
+            stop_candidates.append(float(avwap.iloc[-1] - 0.1*rng_atr))
+        else:
+            stop_candidates.append(float(avwap.iloc[-1] + 0.1*rng_atr))
+
+    if direction == "LONG":
+        if swing_lows:
+            stop_candidates.append(float(df["Low"].iloc[swing_lows[-1]]))
+        if not stop_candidates:
+            stop_candidates = [price - 2*rng_atr]
+        stop = float(min(stop_candidates))
+    else:
+        if swing_highs:
+            stop_candidates.append(float(df["High"].iloc[swing_highs[-1]]))
+        if not stop_candidates:
+            stop_candidates = [price + 2*rng_atr]
+        stop = float(max(stop_candidates))
+
+    # Calculate targets
     tp1, tp2 = price + 1.5*rng_atr, price + 3*rng_atr
+
     for p in patterns:
         if p.name == "CupAndHandle":
             depth = p.meta["cup_depth_pct"] * p.meta["rim_level"]
             tp1 = max(tp1, float(resistance + depth))
             tp2 = max(tp2, float(resistance + 1.5*depth))
+        elif p.name == "InverseHeadAndShoulders" and "pattern_height" in p.meta:
+            height = p.meta["pattern_height"]
+            tp1 = max(tp1, p.meta["neckline_price"] + height)
+            tp2 = max(tp2, p.meta["neckline_price"] + height * 1.5)
+        elif p.name == "DoubleBottom" and "pattern_height" in p.meta:
+            height = p.meta["pattern_height"]
+            tp1 = max(tp1, p.meta["resistance"] + height)
+            tp2 = max(tp2, p.meta["resistance"] + height * 1.5)
+        elif p.name == "HeadAndShoulders" and "pattern_height" in p.meta:
+            height = p.meta["pattern_height"]
+            tp1 = min(tp1, p.meta["neckline_price"] - height)
+            tp2 = min(tp2, p.meta["neckline_price"] - height * 1.5)
+        elif p.name == "DoubleTop" and "pattern_height" in p.meta:
+            height = p.meta["pattern_height"]
+            tp1 = min(tp1, p.meta["support"] - height)
+            tp2 = min(tp2, p.meta["support"] - height * 1.5)
     hvns, lvns = hvn_lvn(vp)
     if hvns:
         above = [h for h in hvns if h > price]
@@ -312,14 +615,18 @@ def compile_trade_plan(df: pd.DataFrame,
                 tp2 = min(farther, key=lambda x: abs(x - tp2))
     conf = confluence_score(df, patterns, sr_levels, vp, volz, macd_line, rsi_line)
     rr = float((tp1 - entry) / max(1e-9, abs(entry - stop)))
-    dirn = "LONG" if breakout or (macd_line.iloc[-1] > 0 and rsi_line.iloc[-1] > 45) else "NEUTRAL"
+
+    # Override direction with indicator confirmation if no strong pattern
+    if direction == "NEUTRAL" and (breakout or (macd_line.iloc[-1] > 0 and rsi_line.iloc[-1] > 45)):
+        direction = "LONG"
+
     ivr = iv_rank_from_hist_impvol_or_proxy(df)
-    opt = choose_options_structure(ivr, bullish=(dirn=="LONG"), entry=entry, tp1=tp1, sl=stop)
+    opt = choose_options_structure(ivr, bullish=(direction=="LONG"), entry=entry, tp1=tp1, sl=stop)
     plan = {
         "symbol": "TICK",
         "timeframe": "1D",
         "thesis": ", ".join(p.name for p in patterns) or "Price Action",
-        "direction": dirn,
+        "direction": direction,
         "entry": round(entry,2),
         "stop": round(stop,2),
         "targets": [round(tp1,2), round(tp2,2)],
@@ -347,8 +654,34 @@ def overlay_spec(df: pd.DataFrame,
             layers.append({"type":"band","style":"rim","y":p.meta["rim_level"],"height":0.2*df['Close'].iloc[-1]/100})
             layers.append({"type":"curve","style":"cup","start_idx":p.meta["rim_idx1"],"mid_idx":p.meta["cup_low_idx"],"end_idx":p.meta["rim_idx2"]})
             layers.append({"type":"channel","style":"handle","start_idx":p.meta["handle_start"],"end_idx":p.meta["handle_end"]})
-        if p.name == "BullFlag":
-            layers.append({"type":"channel","style":"flag","start_idx":len(df)-8,"end_idx":len(df)-1})
+        elif p.name == "BullFlag":
+            layers.append({"type":"channel","style":"flag","start_idx":p.meta["flag_start_idx"],"end_idx":len(df)-1})
+        elif p.name == "HeadAndShoulders":
+            layers.append({"type":"pattern_markers","style":"h_and_s","points":[
+                {"idx":p.meta["left_shoulder_idx"],"y":p.meta["left_shoulder"],"label":"LS"},
+                {"idx":p.meta["head_idx"],"y":p.meta["head"],"label":"H"},
+                {"idx":p.meta["right_shoulder_idx"],"y":p.meta["right_shoulder"],"label":"RS"}
+            ]})
+            layers.append({"type":"hline","style":"neckline","label":"Neckline","y":p.meta["neckline_price"]})
+        elif p.name == "InverseHeadAndShoulders":
+            layers.append({"type":"pattern_markers","style":"inv_h_and_s","points":[
+                {"idx":p.meta["left_shoulder_idx"],"y":p.meta["left_shoulder"],"label":"LS"},
+                {"idx":p.meta["head_idx"],"y":p.meta["head"],"label":"H"},
+                {"idx":p.meta["right_shoulder_idx"],"y":p.meta["right_shoulder"],"label":"RS"}
+            ]})
+            layers.append({"type":"hline","style":"neckline","label":"Neckline","y":p.meta["neckline_price"]})
+        elif p.name == "DoubleBottom":
+            layers.append({"type":"pattern_markers","style":"double_bottom","points":[
+                {"idx":p.meta["first_low_idx"],"y":p.meta["first_low"],"label":"B1"},
+                {"idx":p.meta["second_low_idx"],"y":p.meta["second_low"],"label":"B2"}
+            ]})
+            layers.append({"type":"hline","style":"resistance","label":"Resistance","y":p.meta["resistance"]})
+        elif p.name == "DoubleTop":
+            layers.append({"type":"pattern_markers","style":"double_top","points":[
+                {"idx":p.meta["first_high_idx"],"y":p.meta["first_high"],"label":"T1"},
+                {"idx":p.meta["second_high_idx"],"y":p.meta["second_high"],"label":"T2"}
+            ]})
+            layers.append({"type":"hline","style":"support","label":"Support","y":p.meta["support"]})
     if avwap is not None:
         layers.append({"type":"line_series","style":"avwap","y": [None if math.isnan(y) else float(y) for y in avwap.values]})
     layers.append({"type":"vpvr","centers": vp["price_centers"].tolist(),"volume": vp["volume"].tolist()})
@@ -392,10 +725,25 @@ class AITA:
         data["VOLZ"] = vol_zscore(data,20)
 
         patterns: List[DetectedPattern] = []
+
+        # Detect bullish patterns
         cnh = detect_cup_handle(data, order=self.cfg.pivot_order)
         if cnh: patterns.append(cnh)
         flag = detect_bull_flag(data)
         if flag: patterns.append(flag)
+        inv_hs = detect_inverse_head_shoulders(data, order=self.cfg.pivot_order)
+        if inv_hs: patterns.append(inv_hs)
+        db = detect_double_bottom(data, order=self.cfg.pivot_order)
+        if db: patterns.append(db)
+
+        # Detect bearish patterns
+        hs = detect_head_shoulders(data, order=self.cfg.pivot_order)
+        if hs: patterns.append(hs)
+        dt = detect_double_top(data, order=self.cfg.pivot_order)
+        if dt: patterns.append(dt)
+
+        # Sort by score (highest confidence first)
+        patterns.sort(key=lambda p: p.score, reverse=True)
 
         srlvls = sr_levels_from_pivots(data, order=self.cfg.pivot_order)
         fib = fib_levels_from_last_swing(data, order=self.cfg.pivot_order)
