@@ -141,7 +141,8 @@
         #chart {
             height: 600px;
             border-radius: 10px;
-            background: #1a1a2e;
+            background: linear-gradient(180deg, #0a0e27 0%, #1a1a2e 100%);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }
 
         .info-panel {
@@ -381,28 +382,53 @@
         const API_BASE = 'http://127.0.0.1:8000';
         let chart = null;
         let candlestickSeries = null;
+        let volumeSeries = null;
+        let trendlineSeries = null;
 
         // Initialize chart
         function initChart() {
             const chartElement = document.getElementById('chart');
             chart = LightweightCharts.createChart(chartElement, {
                 layout: {
-                    background: { color: '#1a1a2e' },
-                    textColor: '#e0e0e0',
+                    background: { color: '#0a0e27' },
+                    textColor: '#d1d4dc',
                 },
                 grid: {
-                    vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-                    horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                    vertLines: { color: 'rgba(70, 130, 180, 0.1)' },
+                    horzLines: { color: 'rgba(70, 130, 180, 0.1)' },
                 },
                 crosshair: {
                     mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: {
+                        color: 'rgba(102, 126, 234, 0.5)',
+                        width: 1,
+                        style: LightweightCharts.LineStyle.Dashed,
+                    },
+                    horzLine: {
+                        color: 'rgba(102, 126, 234, 0.5)',
+                        width: 1,
+                        style: LightweightCharts.LineStyle.Dashed,
+                    },
                 },
                 rightPriceScale: {
-                    borderColor: 'rgba(197, 203, 206, 0.4)',
+                    borderColor: 'rgba(197, 203, 206, 0.2)',
+                    scaleMargins: {
+                        top: 0.1,
+                        bottom: 0.2,
+                    },
                 },
                 timeScale: {
-                    borderColor: 'rgba(197, 203, 206, 0.4)',
+                    borderColor: 'rgba(197, 203, 206, 0.2)',
                     timeVisible: true,
+                    secondsVisible: false,
+                },
+                watermark: {
+                    visible: true,
+                    fontSize: 64,
+                    horzAlign: 'center',
+                    vertAlign: 'center',
+                    color: 'rgba(102, 126, 234, 0.1)',
+                    text: 'AITA',
                 },
             });
 
@@ -413,6 +439,15 @@
                 borderUpColor: '#26a69a',
                 wickDownColor: '#ef5350',
                 wickUpColor: '#26a69a',
+            });
+
+            // Add line series for drawing trendlines and patterns
+            trendlineSeries = chart.addLineSeries({
+                color: 'rgba(102, 126, 234, 0)',
+                lineWidth: 0,
+                crosshairMarkerVisible: false,
+                lastValueVisible: false,
+                priceLineVisible: false,
             });
 
             chart.timeScale().fitContent();
@@ -588,6 +623,213 @@
             document.getElementById('qualityMetrics').innerHTML = html;
         }
 
+        // Draw AI-powered pattern overlays
+        function drawPatternOverlays(chartData, overlay, patterns) {
+            const data = chartData.data;
+            if (!data || data.length === 0) return;
+
+            // Draw patterns based on type
+            patterns.forEach(pattern => {
+                if (pattern.name === 'CupAndHandle') {
+                    drawCupAndHandle(data, overlay);
+                } else if (pattern.name === 'HeadAndShoulders' || pattern.name === 'InverseHeadAndShoulders') {
+                    drawHeadAndShoulders(data, overlay, pattern.name);
+                } else if (pattern.name === 'DoubleBottom' || pattern.name === 'DoubleTop') {
+                    drawDoublePattern(data, overlay, pattern.name);
+                }
+            });
+
+            // Draw trendlines from overlay
+            drawTrendlines(data, overlay);
+        }
+
+        // Draw curved cup pattern
+        function drawCupAndHandle(data, overlay) {
+            overlay.layers.forEach(layer => {
+                if (layer.type === 'curve' && layer.style === 'cup') {
+                    const start = layer.start_idx;
+                    const mid = layer.mid_idx;
+                    const end = layer.end_idx;
+
+                    if (start < data.length && mid < data.length && end < data.length) {
+                        const cupData = [];
+                        const startPoint = { time: data[start].time, value: data[start].high };
+                        const lowPoint = { time: data[mid].time, value: data[mid].low };
+                        const endPoint = { time: data[end].time, value: data[end].high };
+
+                        // Create smooth curve using quadratic interpolation
+                        for (let i = start; i <= end; i++) {
+                            const t = (i - start) / (end - start);
+                            // Quadratic bezier curve
+                            const value = (1 - t) * (1 - t) * startPoint.value +
+                                         2 * (1 - t) * t * lowPoint.value +
+                                         t * t * endPoint.value;
+
+                            cupData.push({
+                                time: data[i].time,
+                                value: value
+                            });
+                        }
+
+                        const cupSeries = chart.addLineSeries({
+                            color: '#667eea',
+                            lineWidth: 3,
+                            lineStyle: LightweightCharts.LineStyle.Solid,
+                            crosshairMarkerVisible: false,
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                        });
+                        cupSeries.setData(cupData);
+                    }
+                }
+            });
+        }
+
+        // Draw diagonal trendlines for triangles and channels
+        function drawTrendlines(data, overlay) {
+            overlay.layers.forEach(layer => {
+                if (layer.type === 'channel' || layer.style === 'flag') {
+                    const start = layer.start_idx;
+                    const end = layer.end_idx;
+
+                    if (start < data.length && end < data.length) {
+                        // Upper trendline
+                        const upperLine = [
+                            { time: data[start].time, value: data[start].high },
+                            { time: data[end].time, value: data[end].high }
+                        ];
+
+                        const upperSeries = chart.addLineSeries({
+                            color: '#ef5350',
+                            lineWidth: 2,
+                            lineStyle: LightweightCharts.LineStyle.Solid,
+                            crosshairMarkerVisible: false,
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                        });
+                        upperSeries.setData(upperLine);
+
+                        // Lower trendline
+                        const lowerLine = [
+                            { time: data[start].time, value: data[start].low },
+                            { time: data[end].time, value: data[end].low }
+                        ];
+
+                        const lowerSeries = chart.addLineSeries({
+                            color: '#26a69a',
+                            lineWidth: 2,
+                            lineStyle: LightweightCharts.LineStyle.Solid,
+                            crosshairMarkerVisible: false,
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                        });
+                        lowerSeries.setData(lowerLine);
+
+                        // Add projection arrows
+                        if (layer.style === 'flag') {
+                            drawProjectionArrow(data, end, data[end].high, data[start].high - data[start].low);
+                        }
+                    }
+                }
+            });
+        }
+
+        // Draw H&S pattern with connecting lines
+        function drawHeadAndShoulders(data, overlay, patternType) {
+            overlay.layers.forEach(layer => {
+                if (layer.type === 'pattern_markers' &&
+                    (layer.style === 'h_and_s' || layer.style === 'inv_h_and_s')) {
+
+                    const points = layer.points;
+                    if (points && points.length >= 3) {
+                        // Connect shoulder-head-shoulder
+                        const lineData = points.map(p => ({
+                            time: data[p.idx].time,
+                            value: p.y
+                        }));
+
+                        const patternSeries = chart.addLineSeries({
+                            color: patternType === 'InverseHeadAndShoulders' ? '#26a69a' : '#ef5350',
+                            lineWidth: 2,
+                            lineStyle: LightweightCharts.LineStyle.Solid,
+                            crosshairMarkerVisible: false,
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                        });
+                        patternSeries.setData(lineData);
+
+                        // Add markers at key points
+                        const markers = points.map(p => ({
+                            time: data[p.idx].time,
+                            position: patternType === 'InverseHeadAndShoulders' ? 'belowBar' : 'aboveBar',
+                            color: patternType === 'InverseHeadAndShoulders' ? '#26a69a' : '#ef5350',
+                            shape: 'circle',
+                            text: p.label,
+                        }));
+                        candlestickSeries.setMarkers(markers);
+                    }
+                }
+            });
+        }
+
+        // Draw double top/bottom with W or M shape
+        function drawDoublePattern(data, overlay, patternType) {
+            overlay.layers.forEach(layer => {
+                if (layer.type === 'pattern_markers' &&
+                    (layer.style === 'double_bottom' || layer.style === 'double_top')) {
+
+                    const points = layer.points;
+                    if (points && points.length >= 2) {
+                        const lineData = points.map(p => ({
+                            time: data[p.idx].time,
+                            value: p.y
+                        }));
+
+                        const patternSeries = chart.addLineSeries({
+                            color: patternType === 'DoubleBottom' ? '#26a69a' : '#ef5350',
+                            lineWidth: 2,
+                            lineStyle: LightweightCharts.LineStyle.Dashed,
+                            crosshairMarkerVisible: false,
+                            lastValueVisible: false,
+                            priceLineVisible: false,
+                        });
+                        patternSeries.setData(lineData);
+                    }
+                }
+            });
+        }
+
+        // Draw projection arrow for breakouts
+        function drawProjectionArrow(data, startIdx, startPrice, height) {
+            const endIdx = Math.min(startIdx + 10, data.length - 1);
+            const targetPrice = startPrice + height;
+
+            const arrowData = [
+                { time: data[startIdx].time, value: startPrice },
+                { time: data[endIdx].time, value: targetPrice }
+            ];
+
+            const arrowSeries = chart.addLineSeries({
+                color: '#26a69a',
+                lineWidth: 3,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                crosshairMarkerVisible: false,
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            arrowSeries.setData(arrowData);
+
+            // Add arrow marker
+            const marker = {
+                time: data[endIdx].time,
+                position: 'aboveBar',
+                color: '#26a69a',
+                shape: 'arrowUp',
+                text: `Target: $${targetPrice.toFixed(2)}`,
+            };
+            candlestickSeries.setMarkers([marker]);
+        }
+
         async function renderChart(overlay, summary) {
             // Clear existing chart data and price lines
             candlestickSeries.setData([]);
@@ -601,25 +843,28 @@
                     // Set candlestick data
                     candlestickSeries.setData(chartData.data);
 
+                    // Draw AI-powered pattern overlays
+                    drawPatternOverlays(chartData, overlay, summary.patterns);
+
                     // Add price lines after data is loaded
                     const plan = summary.plan;
 
                     candlestickSeries.createPriceLine({
                         price: plan.entry,
                         color: '#667eea',
-                        lineWidth: 2,
+                        lineWidth: 3,
                         lineStyle: LightweightCharts.LineStyle.Solid,
                         axisLabelVisible: true,
-                        title: 'Entry',
+                        title: '📍 Entry',
                     });
 
                     candlestickSeries.createPriceLine({
                         price: plan.stop,
                         color: '#ef5350',
-                        lineWidth: 2,
+                        lineWidth: 3,
                         lineStyle: LightweightCharts.LineStyle.Dashed,
                         axisLabelVisible: true,
-                        title: 'Stop',
+                        title: '🛑 Stop',
                     });
 
                     candlestickSeries.createPriceLine({
@@ -628,16 +873,16 @@
                         lineWidth: 2,
                         lineStyle: LightweightCharts.LineStyle.Dashed,
                         axisLabelVisible: true,
-                        title: 'TP1',
+                        title: '🎯 TP1',
                     });
 
                     candlestickSeries.createPriceLine({
                         price: plan.targets[1],
                         color: '#26a69a',
-                        lineWidth: 1,
+                        lineWidth: 2,
                         lineStyle: LightweightCharts.LineStyle.Dotted,
                         axisLabelVisible: true,
-                        title: 'TP2',
+                        title: '🎯 TP2',
                     });
 
                     // Add support/resistance levels from overlay
@@ -650,7 +895,7 @@
                                 candlestickSeries.createPriceLine({
                                     price: layer.y,
                                     color: color,
-                                    lineWidth: 1,
+                                    lineWidth: 2,
                                     lineStyle: LightweightCharts.LineStyle.Dotted,
                                     axisLabelVisible: true,
                                     title: layer.label || layer.style,
