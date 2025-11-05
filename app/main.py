@@ -1,5 +1,6 @@
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from aita_system.aita_system import AITA, AITAConfig
 
@@ -8,6 +9,16 @@ app = FastAPI(
     version="1.0.0",
     description="Production-ready API for automated chart pattern detection and trade signal generation"
 )
+
+# Add CORS middleware to allow frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 engine = AITA(AITAConfig())
 
 class AnalyzeResponse(BaseModel):
