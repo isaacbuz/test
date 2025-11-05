@@ -30,6 +30,46 @@ class ErrorResponse(BaseModel):
     symbol: str
     message: str
 
+@app.get("/chart-data/{symbol}", summary="Get chart OHLC data")
+def get_chart_data(symbol: str):
+    """
+    Get OHLC candlestick data for charting.
+    Returns last 100 candles with timestamp, open, high, low, close, volume.
+    """
+    try:
+        import yfinance as yf
+        import pandas as pd
+
+        # Download 6 months of data
+        data = yf.download(symbol, period='6mo', interval='1d', auto_adjust=True)
+
+        if data.empty:
+            raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+
+        # Flatten MultiIndex if present
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = [col[0] for col in data.columns]
+
+        # Get last 100 candles
+        data = data.tail(100)
+
+        # Format for Lightweight Charts
+        candles = []
+        for idx, row in data.iterrows():
+            candles.append({
+                'time': int(idx.timestamp()),
+                'open': float(row['Open']),
+                'high': float(row['High']),
+                'low': float(row['Low']),
+                'close': float(row['Close']),
+                'volume': float(row['Volume'])
+            })
+
+        return {"symbol": symbol, "data": candles}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get(
     "/analyze",
     response_model=AnalyzeResponse,

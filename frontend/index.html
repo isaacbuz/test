@@ -588,65 +588,83 @@
             document.getElementById('qualityMetrics').innerHTML = html;
         }
 
-        function renderChart(overlay, summary) {
-            // Clear existing chart data
+        async function renderChart(overlay, summary) {
+            // Clear existing chart data and price lines
             candlestickSeries.setData([]);
 
-            // Note: Since we don't have OHLC data from the API, we'll show a message
-            // In a real implementation, you'd fetch historical data from yfinance or another source
+            // Fetch candlestick data
+            try {
+                const chartResponse = await fetch(`${API_BASE}/chart-data/${summary.symbol}`);
+                const chartData = await chartResponse.json();
 
-            // Add price markers for entry, stop, targets
-            const markers = [];
-            const plan = summary.plan;
-            const currentTime = Date.now() / 1000;
+                if (chartResponse.ok && chartData.data) {
+                    // Set candlestick data
+                    candlestickSeries.setData(chartData.data);
 
-            // Entry marker
-            markers.push({
-                time: currentTime,
-                position: 'inBar',
-                color: '#667eea',
-                shape: 'arrowUp',
-                text: `Entry: $${plan.entry.toFixed(2)}`
-            });
+                    // Add price lines after data is loaded
+                    const plan = summary.plan;
 
-            candlestickSeries.setMarkers(markers);
+                    candlestickSeries.createPriceLine({
+                        price: plan.entry,
+                        color: '#667eea',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Solid,
+                        axisLabelVisible: true,
+                        title: 'Entry',
+                    });
 
-            // Add price lines
-            const entryLine = candlestickSeries.createPriceLine({
-                price: plan.entry,
-                color: '#667eea',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: 'Entry',
-            });
+                    candlestickSeries.createPriceLine({
+                        price: plan.stop,
+                        color: '#ef5350',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: 'Stop',
+                    });
 
-            const stopLine = candlestickSeries.createPriceLine({
-                price: plan.stop,
-                color: '#ef5350',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'Stop Loss',
-            });
+                    candlestickSeries.createPriceLine({
+                        price: plan.targets[0],
+                        color: '#26a69a',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: 'TP1',
+                    });
 
-            const target1Line = candlestickSeries.createPriceLine({
-                price: plan.targets[0],
-                color: '#26a69a',
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'Target 1',
-            });
+                    candlestickSeries.createPriceLine({
+                        price: plan.targets[1],
+                        color: '#26a69a',
+                        lineWidth: 1,
+                        lineStyle: LightweightCharts.LineStyle.Dotted,
+                        axisLabelVisible: true,
+                        title: 'TP2',
+                    });
 
-            const target2Line = candlestickSeries.createPriceLine({
-                price: plan.targets[1],
-                color: '#26a69a',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dotted,
-                axisLabelVisible: true,
-                title: 'Target 2',
-            });
+                    // Add support/resistance levels from overlay
+                    if (overlay.layers) {
+                        overlay.layers.forEach(layer => {
+                            if (layer.type === 'hline' && (layer.style === 'support' || layer.style === 'resistance' || layer.style === 'neckline')) {
+                                const color = layer.style === 'support' ? '#26a69a' :
+                                             layer.style === 'resistance' ? '#ef5350' : '#ffa726';
+
+                                candlestickSeries.createPriceLine({
+                                    price: layer.y,
+                                    color: color,
+                                    lineWidth: 1,
+                                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                                    axisLabelVisible: true,
+                                    title: layer.label || layer.style,
+                                });
+                            }
+                        });
+                    }
+
+                    // Fit content to show all data
+                    chart.timeScale().fitContent();
+                }
+            } catch (error) {
+                console.error('Error loading chart data:', error);
+            }
         }
 
         function formatPatternName(name) {
